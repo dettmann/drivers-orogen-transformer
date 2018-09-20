@@ -81,7 +81,9 @@ module Transformer
         # provider
         def resolve_producer(dyn, host)
             producer_name, producer_port_name = dyn.producer.split('.')
-            producer_name = host.to_s + producer_name
+            if host != ""
+                producer_name = host.to_s + producer_name
+            end
             producer_task =
                 begin Orocos::TaskContext.get(producer_name)
                 rescue Orocos::NotFound
