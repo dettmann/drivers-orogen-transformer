@@ -56,13 +56,13 @@ module Transformer
         # Do configuration on the provided tasks. It will use the configuration
         # stored in \c config to create the needed connections for dynamic
         # transformations
-        def setup(*tasks)
+        def setup(*tasks, host)
             tasks.each do |t|
-                setup_task(t)
+                setup_task(t, host)
             end
 
             if broadcaster
-                publish(*tasks)
+                publish(*tasks, host)
             end
         end
 
@@ -79,9 +79,12 @@ module Transformer
 
         # Given a task, find an output port that can be used as a transformation
         # provider
-        def resolve_producer(dyn)
+        def resolve_producer(dyn, host)
             producer_name, producer_port_name = dyn.producer.split('.')
-            producer_task =
+            if host != ""
+                producer_name = host + producer_name
+            end
+            producer_task = 
                 begin Orocos::TaskContext.get(producer_name)
                 rescue Orocos::NotFound
                     Transformer.warn "#{producer_name}, which is registered as the producer of #{dyn.from} => #{dyn.to}, cannot be contacted"
@@ -110,7 +113,7 @@ module Transformer
 
         class UnknownFrame < RuntimeError; end
 
-        def setup_task(task, policy = { :type => :buffer, :size => 100 })
+        def setup_task(task, host, policy = { :type => :buffer, :size => 100 })
             return if !task.model.has_transformer?
 
             tr = task.model.transformer
@@ -151,7 +154,7 @@ module Transformer
                     needed_static_transforms[[sta.from, sta.to]] = sta
                 end
                 dynamic.each do |dyn|
-                    producer_port = resolve_producer(dyn)
+                    producer_port = resolve_producer(dyn, host)
                     needed_producers[[producer_port.task.name, producer_port.name]] ||= producer_port
                 end
             end
@@ -196,7 +199,7 @@ module Transformer
                     end
         end
 
-        def update_configuration_state(*tasks)
+        def update_configuration_state(*tasks, host)
             update_static_state
 
             # NOTE: the port-transform associations that are needed to connect
@@ -204,7 +207,7 @@ module Transformer
             # rest.
             manager.conf.each_dynamic_transform do |dyn|
                 begin
-                    producer_port = resolve_producer(dyn)
+                    producer_port = resolve_producer(dyn, host)
                     configuration_state.port_transformation_associations <<
                         Types::Transformer::PortTransformationAssociation.new(:task => producer_port.task.name, :port => producer_port.name,
                                                                          :from_frame => dyn.from, :to_frame => dyn.to)
@@ -229,9 +232,9 @@ module Transformer
 
         end
 
-        def publish(*tasks)
+        def publish(*tasks, host)
             reset_configuration_state
-            update_configuration_state(*tasks)
+            update_configuration_state(*tasks, host)
 
             # Make sure the component is running
             if !broadcaster.running?
@@ -246,13 +249,13 @@ module Transformer
             rescue Orocos::NotFound => e
             	# ignore since in this case we have to start the broadcaster
             end
-                        
+
             if !@broadcaster
             	options = options.merge('transformer::Task' => name)
             else
             	Transformer.warn "Transformer broadcaster was already running. Reusing existing task context"
             end
-            
+
             Orocos::Process.run(options) do
                 @broadcaster = Orocos.name_service.get(name)
                 yield
